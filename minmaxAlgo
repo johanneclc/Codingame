@@ -11,9 +11,17 @@ class Player {
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
         boolean boost = false;
+        int dirX = 0;
+        int dirY = 0;
+        int thrust = 100; 
+        Vector<Vector<Integer>> checkpoints = new Vector<>();
+        int index = -1;
+        int distMax = 0;
+        int i =1; 
+        
 
         // game loop
-        while (true) {
+         while (true) {
             int x = in.nextInt();
             int y = in.nextInt();
             int nextCheckpointX = in.nextInt(); // x position of the next check point
@@ -22,22 +30,88 @@ class Player {
             int nextCheckpointAngle = in.nextInt(); // angle between your pod orientation and the direction of the next checkpoint
             int opponentX = in.nextInt();
             int opponentY = in.nextInt();
+            dirX = nextCheckpointX;
+            dirY = nextCheckpointY;
 
+            System.err.println(nextCheckpointAngle);
+            System.err.println(nextCheckpointDist);
 
-            if(nextCheckpointAngle > 90 || nextCheckpointAngle < -90){
-                System.out.println(nextCheckpointX + " " + nextCheckpointY + " 0");
-            }
-            else {
-                if(nextCheckpointDist >100 && boost== false){
-                    System.out.println(nextCheckpointX + " " + nextCheckpointY + " BOOST");
+            if(checkpointsList(checkpoints, nextCheckpointX ,nextCheckpointY ) && checkpoints.size()>1){
+                Vector<Integer> point1 = checkpoints.elementAt(i);
+                Vector<Integer> point2 = checkpoints.elementAt((checkpoints.elementAt(i+1) ? i+1 : 0));
+                int dist =(int) Math.sqrt(Math.pow(point1.elementAt(0)-point2.elementAt(0),2) +
+                Math.pow(point1.elementAt(1)-point2.elementAt(1),2)); 
+                if(dist > distMax){
+                    distMax = dist;
+                    index = i+1;
                 }
-                else{
-                    System.out.println(nextCheckpointX + " " + nextCheckpointY + " 100");
-                }
+            }
+            
+
+            Vector<Integer> point = new Vector<>();
+            point.add(nextCheckpointX);
+            point.add(nextCheckpointY);
+
+            if(checkpoints.elementAt(0).equals(point)){
+                index = maxDist(checkpoints);
             }
 
-            // Write an action using System.out.println()
-            // To debug: System.err.println("Debug messages...");
+            if(nextCheckpointAngle > 90 || nextCheckpointAngle < -90 ){
+                thrust = 0;
+                dirX += (nextCheckpointAngle>0 ? -200 : +200);
+                dirX += (nextCheckpointAngle>0 ? -200 : +200);
+            }
+            
+            else{
+                int dist = (int) Math.cos( (int) Math.cos((int) Math.toRadians(nextCheckpointAngle)))*nextCheckpointDist;
+                dirX = nextCheckpointX - (dist* (int) Math.cos((int) Math.toRadians(nextCheckpointAngle))) +(nextCheckpointAngle>0 ? -100 : +100) ;
+                dirY = nextCheckpointY - (dist* (int) Math.sin((int) Math.toRadians(nextCheckpointAngle))) +(nextCheckpointAngle>0 ? -100 : +100);
+                if(index != -1 && point.equals(checkpoints.elementAt(index)) && boost== false && nextCheckpointAngle <5 && nextCheckpointAngle > -5){
+                        boost = true;
+                        thrust = -1;
+                        index = -1;
+                }
+                else if(nextCheckpointDist < 600){
+                    thrust = 1/6*nextCheckpointDist ;
+                }                
+                else {
+                    thrust = 100 ;
+                }
+            } 
+
+            
+            System.out.println(dirX + " " + dirY  + " "+ (thrust== -1 ? "BOOST" : thrust));
+            
         }
+    }
+
+    public static boolean checkpointsList(Vector<Vector<Integer>> checkpoints, int x ,int y ){
+        Vector<Integer> nextPoint = new Vector<>();
+        nextPoint.add(x);
+        nextPoint.add(y);
+
+        if(checkpoints.indexOf(nextPoint) == -1){
+            checkpoints.add(nextPoint);
+            return true ;
+        }
+        else{
+            return false;
+        }
+    }
+
+    public static int maxDist(Vector<Vector<Integer>> checkpoints){
+        int distMax = 0;
+        int index = -1; 
+        for(int i=0 ; i< checkpoints.size(); i++){
+            Vector<Integer> point1 = checkpoints.elementAt(i);
+            Vector<Integer> point2 = checkpoints.elementAt((i==checkpoints.size()-1 ? 0 :i+1));
+            int dist =(int) Math.sqrt(Math.pow(point1.elementAt(0)-point2.elementAt(0),2) +
+                Math.pow(point1.elementAt(1)-point2.elementAt(1),2)); 
+            if(dist > distMax){
+                distMax = dist;
+                index = i+1;
+            }
+        }
+        return index; 
     }
 }
