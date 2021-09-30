@@ -1,5 +1,6 @@
 import java.util.*;
 import java.io.*;
+import java.lang.reflect.Array;
 import java.math.*;
 
 /**
@@ -9,71 +10,350 @@ import java.math.*;
 class Player {
 
     public static void main(String args[]) {
+        int tour= 0; 
         Scanner in = new Scanner(System.in);
-        boolean boost = false;
-        int dirX = 0;
-        int dirY = 0;
-        int thrust = 100; 
-        Vector<Vector<Integer>> checkpoints = new Vector<>();
-        int distMax = 0;
-        boolean allCheckpointsFound= false;
-        int posX = 0;
-        int posY = 0;
-        
+        int laps = in.nextInt();
+        int checkpointCount = in.nextInt();
+        Vector<Position> checkpoints = new Vector<Position>(); 
+        for (int i = 0; i < checkpointCount; i++) {
+            checkpoints.add(new Position(in.nextInt(),in.nextInt()));
+        }
 
         // game loop
-         while (true) {
-            int x = in.nextInt();
-            int y = in.nextInt();
-            int nextCheckpointX = in.nextInt(); // x position of the next check point
-            int nextCheckpointY = in.nextInt(); // y position of the next check point
-            int nextCheckpointDist = in.nextInt(); // distance to the next checkpoint
-            int nextCheckpointAngle = in.nextInt(); // angle between your pod orientation and the direction of the next checkpoint
-            int opponentX = in.nextInt();
-            int opponentY = in.nextInt();
+        while (true) {
+            Date start = new Date(); 
+            Simulation sim = new Simulation();
+            for (int i = 0; i < 2; i++) {
+                int x = in.nextInt(); 
+                int y = in.nextInt(); 
+                int vx = in.nextInt(); 
+                int vy = in.nextInt(); 
+                int angle = in.nextInt(); 
+                int nextCheckPointId = in.nextInt();
 
-            System.err.println(nextCheckpointAngle);
-            System.err.println(nextCheckpointDist);
-            System.err.println(distMax);
-
-            Vector<Integer> nextPoint = new Vector<>();
-            nextPoint.add(nextCheckpointX);
-            nextPoint.add(nextCheckpointY);
-
-            if(checkpoints.indexOf(nextPoint) == -1){
-                checkpoints.add(nextPoint);
-                distMax = (distMax< nextCheckpointDist ? nextCheckpointDist : distMax) - 1000;
+                sim.pods[i] = new Pod(new Position((float) x,(float) y),(float) vx,(float) vy,(float) angle,nextCheckPointId);
+                sim.podsInit[i] = new Pod(new Position((float) x,(float) y),(float) vx,(float) vy,(float) angle,nextCheckPointId);
             }
-            else if(checkpoints.indexOf(nextPoint)== 0 && checkpoints.size()>1){
-                allCheckpointsFound = true;
+            for (int i = 0; i < 2; i++) {
+                int x = in.nextInt(); // x position of your pod
+                int y = in.nextInt(); // y position of your pod
+                int vx = in.nextInt(); // x speed of your pod
+                int vy = in.nextInt(); // y speed of your pod
+                int angle = in.nextInt(); // angle of your pod
+                int nextCheckPointId = in.nextInt();
+
+                sim.pods[2+i] = new Pod(new Position((float) x,(float) y),(float) vx,(float) vy,(float) angle,nextCheckPointId);
+                sim.podsInit[2+i] = new Pod(new Position((float) x,(float) y),(float) vx,(float) vy,(float) angle,nextCheckPointId);
             }
 
-            dirX = (int) (nextCheckpointX -3*(posX==0 ? 0 : x-posX)) ;
-            dirY = (int) (nextCheckpointY -3*(posY==0 ? 0 : y-posY)) ;
+            System.err.println ("time : "+((new Date()).getTime() - start.getTime()));
 
-            if(nextCheckpointAngle > 90 || nextCheckpointAngle < -90 ){
-                thrust = 20;
-            }    
-            else if(boost== false && -10<nextCheckpointAngle && nextCheckpointAngle<10 && nextCheckpointDist>distMax && allCheckpointsFound){
-                    boost = true;
-                    thrust = -1;
+            if(tour ==0){
+                System.out.println((int) checkpoints.elementAt(1).x + " "+(int) checkpoints.elementAt(1).y +" BOOST");
+                System.out.println((int) checkpoints.elementAt(1).x + " "+(int) checkpoints.elementAt(1).y +" BOOST");
             }
-            else if(allCheckpointsFound && nextCheckpointDist < 600){
-                int index = (checkpoints.indexOf(nextPoint)==checkpoints.size()-1 ? 0 : checkpoints.indexOf(nextPoint)+1);
-                dirX = (int) (checkpoints.elementAt(index).elementAt(0) -3*(posX==0 ? 0 : x-posX)) ;
-                dirY = (int) (checkpoints.elementAt(index).elementAt(1) -3*(posY==0 ? 0 : y-posY)) ;
-            }
-            else if(nextCheckpointDist < 2400){
-                thrust = nextCheckpointDist/24;
-            }   
+
             else {
-                thrust = 100 ;
-            }        
             
-            System.out.println(dirX + " " + dirY  + " "+ (thrust== -1 ? "BOOST" : thrust));
-            posX=x;
-            posY=y;
-            
+                Node[] bestSolution = sim.search(checkpoints);
+                System.err.println ("time apres search : "+((new Date()).getTime() - start.getTime()));
+
+                float angle1 = (float) ((sim.podsInit[0].angle + bestSolution[0].angleDiff)*Math.PI/180);
+                float angle2 = (float) ((sim.podsInit[1].angle + bestSolution[1].angleDiff)*Math.PI/180);
+
+                int destX1= (int) (sim.podsInit[0].x + 250*Math.cos(angle1));
+                int destY1= (int) (sim.podsInit[0].y + 250*Math.sin(angle1));
+
+                int destX2= (int) (sim.podsInit[1].x + 250*Math.cos(angle2));
+                int destY2= (int) (sim.podsInit[1].y + 250*Math.sin(angle2));
+
+                System.out.println(destX1+" "+destY1+" "+Math.round(bestSolution[0].thrust));
+                System.out.println(destX2+" "+destY2+" "+Math.round(bestSolution[1].thrust));
+            }
+
+            tour++;
         }
+    }
+}
+
+class Position{
+    public float x; 
+    public float y;
+
+    public Position(float x,float y){
+        this.x = x;
+        this.y = y;
+    } 
+
+    public float distance2(Position point){
+        return (this.x-point.x)*(this.x-point.x) + (this.y-point.y)*(this.y-point.y) ; 
+    }
+} 
+
+class Unit extends Position{
+    public float rayon; 
+    public float vx;
+    public float vy;
+
+    public Unit(){
+        super(0,0);
+        this.vx=0;
+        this.vy=0;
+        this.rayon = 400; 
+    }
+
+    public Unit(Position p){
+        super(p.x,p.y);
+        this.vx=0;
+        this.vy=0;
+        this.rayon = 600; 
+    }
+
+    boolean collision(Unit u) {
+        float dist = this.distance2(u);
+        return dist < (this.rayon + u.rayon)*(this.rayon + u.rayon);
+    }
+    
+}
+
+class Pod extends Unit{
+    public float angle; 
+    public int nextCheckPointId;
+
+    public Pod(){
+        super();
+        this.angle = 0 ;
+        this.nextCheckPointId=0;
+    }
+
+    public Pod(Position p,float vx,float vy,float angle,int nextCheckPointId){
+        super(p);
+        this.angle = angle ;
+        this.vx = vx;
+        this.vy = vy;
+        this.nextCheckPointId = nextCheckPointId;
+    }
+
+    public void setAngle(float angleDiff, float thrust){
+        this.angle +=  angleDiff ;
+
+        this.angle = this.angle%360; 
+
+        float angleRad = (float) (this.angle*Math.PI/180);
+
+        this.vx += thrust * Math.cos(angleRad);
+        this.vy += thrust * Math.sin(angleRad);
+        
+    }
+
+    public void move(){
+        this.x += this.vx; 
+        this.y += this.vy; 
+        
+        this.vx*= 0.85;
+        this.vy*= 0.85;
+    }
+
+    public void play(float angleDiff, float thrust){
+        this.setAngle(angleDiff,thrust);
+        this.move();
+    }
+
+    public float score(Vector<Position> checkpoints){
+        return (-this.distance2(checkpoints.elementAt(this.nextCheckPointId)));
+    }
+
+}
+
+class Simulation{
+    public Pod[] pods;
+    public Pod[] podsInit;
+    public float[] lowestscore ;
+    public float[] highestscore ;
+    public float[] scalescore ;
+    public Node[] current ;
+
+    public Simulation(){
+        this.pods = new Pod[4];
+        this.podsInit = new Pod[4];
+        this.lowestscore = new float[]{Float.POSITIVE_INFINITY,Float.POSITIVE_INFINITY,Float.POSITIVE_INFINITY,Float.POSITIVE_INFINITY};
+        this.highestscore = new float[]{Float.NEGATIVE_INFINITY,Float.NEGATIVE_INFINITY,Float.NEGATIVE_INFINITY,Float.NEGATIVE_INFINITY};
+        this.scalescore = new float[]{0f,0f,0f,0f};
+    }
+
+    public void reset(Pod[] podsInit){
+        for(int i= 0;i<4;i++){
+            float x = podsInit[i].x; 
+            float y = podsInit[i].y;
+            float vx = podsInit[i].vx;
+            float vy = podsInit[i].vy;
+            float angle = podsInit[i].angle;
+            int nextCheckPointId = podsInit[i].nextCheckPointId;
+
+            this.pods[i] = new Pod(new Position(x,y),vx,vy,angle,nextCheckPointId);
+        }
+    }
+
+    public Node[] search(Vector<Position> checkpoints){
+        Date time = new Date();
+        Node[] res= {new Node(),new Node()};
+
+        this.current = createRootNodes();
+
+        int nbr_branche =0;
+
+        while((new Date()).getTime() - time.getTime() < 35){ 
+            nbr_branche++;
+            
+            this.reset(this.podsInit);      
+            int depth = 0; 
+
+            while(depth < 8 && (new Date()).getTime() - time.getTime() < 35){
+                for(int i=0; i<4;i++){
+                    Node node = this.current[i];
+
+                    if(node.visits == 1){
+                        node.makeChildren();
+                    }
+
+                    Node child = node.select();
+
+                    child.visits++;
+
+                    this.current[i] = child;    
+
+                    this.pods[i].play(child.angleDiff, child.thrust);            
+
+                }
+                depth++;
+            }
+
+            Float[] scores = this.getScore(checkpoints); 
+
+            for(int i=0; i<4;i++){
+                this.current[i].score = scores[i];
+                if(scores[i] > this.highestscore[i]){
+                    this.highestscore[i] = scores[i];
+                    while(current[i].parent != null){
+                        this.current[i] = this.current[i].parent;
+                        this.current[i].score = scores[i];
+                    }
+                }
+            }   
+
+            for( int i=0; i<4 ; i++){
+                while(this.current[i].parent != null){
+                    this.current[i] = this.current[i].parent;
+                }
+            }
+
+            this.reset(this.podsInit);
+
+            for( int i=0; i<2 ; i++){
+                for( int j=0; j<this.current[i].children.size() ; j++){
+                    if(this.current[i].children.elementAt(j).score >= this.highestscore[i] && this.current[i].children.elementAt(j).score!=0){
+                        res[i] = this.current[i].children.elementAt(j);
+                    }
+                }
+            }
+        }
+        System.err.println("nbr de branche : "+nbr_branche);
+        return res; 
+    }
+
+    public Node[] createRootNodes(){
+        Node[] result = {new Node(),new Node(),new Node(),new Node()};
+        for( int i=0; i<4;i++){
+            result[i] = new Node(this.pods[i].angle , this.pods[i].vx ,1);
+        }
+        return result;
+    }
+
+    public Float[] getScore( Vector<Position> checkpoints){
+        Float[] result = {0f,0f,0f,0f};
+        for(int i=0; i<4;i++){
+            result[i] = this.pods[i].score(checkpoints);
+        }
+        return result; 
+    }
+
+    public boolean[] play( Vector<Position> checkpoints){
+        boolean[] collision = {false,false,false,false};
+        for(int i=0; i<4;i++){
+            for(int j=0; j>i;j++){
+                if(this.pods[i].collision(this.pods[j])){
+                    this.pods[i].x-= this.pods[j].vx;
+                    this.pods[i].y-= this.pods[j].vy;
+                    this.pods[j].x-= this.pods[i].vx;
+                    this.pods[j].y-= this.pods[i].vy;
+                }
+            }
+            for(int j=0;j<checkpoints.size();j++){
+                Unit checkpoint = new Unit(checkpoints.elementAt(j)); 
+                if(this.pods[i].collision(checkpoint)){
+                    this.pods[i].nextCheckPointId = (this.pods[i].nextCheckPointId==checkpoints.size()-1 ? 0 : this.pods[i].nextCheckPointId+1);
+                    collision[i]=true;
+                }
+            }
+        }
+        return collision; 
+    }
+
+    public void SavePodsInit(Pod[] pods){
+        Pod[] res= {new Pod(),new Pod(),new Pod(),new Pod()};
+        for(int i =0;i<4;i++){
+            res[i]= new Pod(new Position(pods[i].x,pods[i].y),pods[i].vx,pods[i].vy,pods[i].angle,pods[i].nextCheckPointId); 
+        }
+        this.podsInit=res;
+    }
+
+}
+
+class Node {
+    Node parent;
+    float score; 
+    int firstChildIndex; 
+    int childCount; 
+    Vector<Node> children;
+    int visits; 
+    float angleDiff;
+    float thrust; 
+
+    public Node(){}
+
+    public Node(float angleDiff, float vx, int visits){
+        this.childCount = 0; 
+        this.visits = visits;
+        this.children = new Vector<Node>();
+        this.angleDiff = angleDiff; 
+        this.thrust = vx / (float) Math.cos(Math.toRadians(angleDiff));
+    }
+
+    public Node(float angleDiff, float thrust){
+        this.childCount = 0; 
+        this.visits = 0;
+        this.angleDiff = angleDiff; 
+        this.thrust = thrust;
+        this.children = new Vector<Node>();
+        this.score = 0; 
+    }
+
+    public void makeChildren(){
+        int[][] ToTest = {{20,-18},{20,18},{100,-9},{100,0},{100,9}};
+
+        for(int i =0; i<ToTest.length; i++){
+            this.children.add(new Node(ToTest[i][1], ToTest[i][0]));
+        }
+
+        for(int i =0; i<this.children.size(); i++){
+            this.children.elementAt(i).parent = this; 
+            this.childCount++;
+        }
+    }
+
+    public Node select(){
+        int index = (int) (Math.random()*(this.children.size()));
+         
+        return this.children.elementAt(index);
     }
 }
