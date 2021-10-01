@@ -14,15 +14,15 @@ class Player {
         Scanner in = new Scanner(System.in);
         int laps = in.nextInt();
         int checkpointCount = in.nextInt();
-        Vector<Position> checkpoints = new Vector<Position>(); 
+        Vector<Unit> checkpoints = new Vector<Unit>(); 
         for (int i = 0; i < checkpointCount; i++) {
-            checkpoints.add(new Position(in.nextInt(),in.nextInt()));
+            checkpoints.add(new Unit(new Position(in.nextInt(),in.nextInt())));
         }
 
         // game loop
         while (true) {
             Date start = new Date(); 
-            Simulation sim = new Simulation();
+            Simulation sim = new Simulation(); //création de la simulation
             for (int i = 0; i < 2; i++) {
                 int x = in.nextInt(); 
                 int y = in.nextInt(); 
@@ -46,17 +46,15 @@ class Player {
                 sim.podsInit[2+i] = new Pod(new Position((float) x,(float) y),(float) vx,(float) vy,(float) angle,nextCheckPointId);
             }
 
-            System.err.println ("time : "+((new Date()).getTime() - start.getTime()));
-
             if(tour ==0){
+                // tour d'initialisation 
                 System.out.println((int) checkpoints.elementAt(1).x + " "+(int) checkpoints.elementAt(1).y +" BOOST");
                 System.out.println((int) checkpoints.elementAt(1).x + " "+(int) checkpoints.elementAt(1).y +" BOOST");
             }
 
             else {
             
-                Node[] bestSolution = sim.search(checkpoints);
-                System.err.println ("time apres search : "+((new Date()).getTime() - start.getTime()));
+                Node[] bestSolution = sim.search(checkpoints); //trouver les meilleurs mouvement des pods 
 
                 float angle1 = (float) ((sim.podsInit[0].angle + bestSolution[0].angleDiff)*Math.PI/180);
                 float angle2 = (float) ((sim.podsInit[1].angle + bestSolution[1].angleDiff)*Math.PI/180);
@@ -67,8 +65,24 @@ class Player {
                 int destX2= (int) (sim.podsInit[1].x + 250*Math.cos(angle2));
                 int destY2= (int) (sim.podsInit[1].y + 250*Math.sin(angle2));
 
-                System.out.println(destX1+" "+destY1+" "+Math.round(bestSolution[0].thrust));
-                System.out.println(destX2+" "+destY2+" "+Math.round(bestSolution[1].thrust));
+                for (int i =0;i<4; i++){
+                    sim.pods[i].play(bestSolution[i].angleDiff, bestSolution[i].thrust); 
+                }
+
+                boolean[] shield = {false,false};
+
+                // si collision, on met le bouclier 
+                for(int j=2;j<4;j++){
+                    if(sim.pods[0].collision(sim.pods[j]) && bestSolution[0].score < bestSolution[j].score){
+                        shield[0] = true;
+                    }
+                    if(sim.pods[1].collision(sim.pods[j]) && bestSolution[1].score < bestSolution[j].score){
+                        shield[1] = true;
+                    }
+                }
+
+                System.out.println(destX1+" "+destY1+" "+(shield[0] ? "SHIELD" : Math.round(bestSolution[0].thrust)));
+                System.out.println(destX2+" "+destY2+" "+(shield[1] ? "SHIELD" : Math.round(bestSolution[1].thrust)));
             }
 
             tour++;
@@ -76,6 +90,7 @@ class Player {
     }
 }
 
+//Position x y dans la map de jeu 
 class Position{
     public float x; 
     public float y;
@@ -90,6 +105,7 @@ class Position{
     }
 } 
 
+// éléments du jeu comme les pods et les checkpoints 
 class Unit extends Position{
     public float rayon; 
     public float vx;
@@ -116,6 +132,7 @@ class Unit extends Position{
     
 }
 
+// les vaisseaux 
 class Pod extends Unit{
     public float angle; 
     public int nextCheckPointId;
@@ -154,12 +171,14 @@ class Pod extends Unit{
         this.vy*= 0.85;
     }
 
+    // déplacement d'un vaisseau 
     public void play(float angleDiff, float thrust){
         this.setAngle(angleDiff,thrust);
         this.move();
     }
 
-    public float score(Vector<Position> checkpoints){
+    // fonction d'évaluation d'un vaisseau
+    public float score(Vector<Unit> checkpoints){
         return (-this.distance2(checkpoints.elementAt(this.nextCheckPointId)));
     }
 
@@ -172,6 +191,7 @@ class Simulation{
     public float[] highestscore ;
     public float[] scalescore ;
     public Node[] current ;
+    public boolean shield; 
 
     public Simulation(){
         this.pods = new Pod[4];
@@ -179,6 +199,7 @@ class Simulation{
         this.lowestscore = new float[]{Float.POSITIVE_INFINITY,Float.POSITIVE_INFINITY,Float.POSITIVE_INFINITY,Float.POSITIVE_INFINITY};
         this.highestscore = new float[]{Float.NEGATIVE_INFINITY,Float.NEGATIVE_INFINITY,Float.NEGATIVE_INFINITY,Float.NEGATIVE_INFINITY};
         this.scalescore = new float[]{0f,0f,0f,0f};
+        this.shield = false ; 
     }
 
     public void reset(Pod[] podsInit){
@@ -194,21 +215,24 @@ class Simulation{
         }
     }
 
-    public Node[] search(Vector<Position> checkpoints){
+    //fonction de recherche du meilleur mouemet par pod 
+    public Node[] search(Vector<Unit> checkpoints){
         Date time = new Date();
-        Node[] res= {new Node(),new Node()};
+        Node[] res= {new Node(),new Node(),new Node(),new Node()};
 
         this.current = createRootNodes();
 
         int nbr_branche =0;
 
-        while((new Date()).getTime() - time.getTime() < 35){ 
+        while((new Date()).getTime() - time.getTime() < 40){ 
             nbr_branche++;
             
             this.reset(this.podsInit);      
             int depth = 0; 
 
-            while(depth < 8 && (new Date()).getTime() - time.getTime() < 35){
+            int[] scoreAjout ={0,0,0,0};
+
+            while(depth < 8 && (new Date()).getTime() - time.getTime() < 40){
                 for(int i=0; i<4;i++){
                     Node node = this.current[i];
 
@@ -222,21 +246,38 @@ class Simulation{
 
                     this.current[i] = child;    
 
-                    this.pods[i].play(child.angleDiff, child.thrust);            
+                    this.pods[i].play(child.angleDiff, child.thrust);    
 
                 }
+
+                for(int k=0; k<4;k++){
+                        for(int j=0; j<k;j++){
+                            if(this.pods[k].collision(this.pods[j])){
+                                this.pods[k].x-= this.pods[j].vx;
+                                this.pods[k].y-= this.pods[j].vy;
+                                this.pods[j].x-= this.pods[k].vx;
+                                this.pods[j].y-= this.pods[k].vy;
+                                scoreAjout[k]-= 50000000;
+                                scoreAjout[j]-= 50000000;
+                            }
+                        }
+                    if(this.pods[k].collision(checkpoints.elementAt(this.pods[k].nextCheckPointId))){   
+                        scoreAjout[k]+= 50000000;
+                    } 
+                }
+                     
                 depth++;
             }
 
-            Float[] scores = this.getScore(checkpoints); 
+            Float[] scores = this.getScore(checkpoints)  ; 
 
             for(int i=0; i<4;i++){
-                this.current[i].score = scores[i];
-                if(scores[i] > this.highestscore[i]){
-                    this.highestscore[i] = scores[i];
+                this.current[i].score = scores[i] + scoreAjout[i];
+                if(scores[i]+ scoreAjout[i] > this.highestscore[i]){
+                    this.highestscore[i] = scores[i]+ scoreAjout[i];
                     while(current[i].parent != null){
                         this.current[i] = this.current[i].parent;
-                        this.current[i].score = scores[i];
+                        this.current[i].score = scores[i]+ scoreAjout[i];
                     }
                 }
             }   
@@ -249,7 +290,7 @@ class Simulation{
 
             this.reset(this.podsInit);
 
-            for( int i=0; i<2 ; i++){
+            for( int i=0; i<4 ; i++){
                 for( int j=0; j<this.current[i].children.size() ; j++){
                     if(this.current[i].children.elementAt(j).score >= this.highestscore[i] && this.current[i].children.elementAt(j).score!=0){
                         res[i] = this.current[i].children.elementAt(j);
@@ -261,6 +302,7 @@ class Simulation{
         return res; 
     }
 
+    // création des racines de l'arbre 
     public Node[] createRootNodes(){
         Node[] result = {new Node(),new Node(),new Node(),new Node()};
         for( int i=0; i<4;i++){
@@ -269,34 +311,12 @@ class Simulation{
         return result;
     }
 
-    public Float[] getScore( Vector<Position> checkpoints){
+    public Float[] getScore( Vector<Unit> checkpoints){
         Float[] result = {0f,0f,0f,0f};
         for(int i=0; i<4;i++){
             result[i] = this.pods[i].score(checkpoints);
         }
         return result; 
-    }
-
-    public boolean[] play( Vector<Position> checkpoints){
-        boolean[] collision = {false,false,false,false};
-        for(int i=0; i<4;i++){
-            for(int j=0; j>i;j++){
-                if(this.pods[i].collision(this.pods[j])){
-                    this.pods[i].x-= this.pods[j].vx;
-                    this.pods[i].y-= this.pods[j].vy;
-                    this.pods[j].x-= this.pods[i].vx;
-                    this.pods[j].y-= this.pods[i].vy;
-                }
-            }
-            for(int j=0;j<checkpoints.size();j++){
-                Unit checkpoint = new Unit(checkpoints.elementAt(j)); 
-                if(this.pods[i].collision(checkpoint)){
-                    this.pods[i].nextCheckPointId = (this.pods[i].nextCheckPointId==checkpoints.size()-1 ? 0 : this.pods[i].nextCheckPointId+1);
-                    collision[i]=true;
-                }
-            }
-        }
-        return collision; 
     }
 
     public void SavePodsInit(Pod[] pods){
@@ -338,6 +358,7 @@ class Node {
         this.score = 0; 
     }
 
+    // création des noeuds enfants selon les valeurs de test dans ToTest
     public void makeChildren(){
         int[][] ToTest = {{20,-18},{20,18},{100,-9},{100,0},{100,9}};
 
@@ -351,9 +372,11 @@ class Node {
         }
     }
 
+    //sélection au hasard des enfants à tester 
     public Node select(){
         int index = (int) (Math.random()*(this.children.size()));
          
         return this.children.elementAt(index);
     }
 }
+
