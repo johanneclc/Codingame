@@ -1,43 +1,547 @@
-import java.util.*;
-import java.io.*;
-import java.math.*;
+import sys
+import math
+import numpy as np
+from random import choice, choices, randint, randrange, random
+import time
+import copy
 
-/**
- * Auto-generated code below aims at helping you parse
- * the standard input according to the problem statement.
- **/
-class Player {
+# Auto-generated code below aims at helping you parse
+# the standard input according to the problem statement.
 
-    public static void main(String args[]) {
-        Scanner in = new Scanner(System.in);
-        boolean boost = false;
+k = 2
+turn = 0
+PI = 3.14159
+frictionFactor = 0.85
+minImpulse = 120
+maxThrust = 200
+boostThrust = 650
+maxRotation = 18
+checkpoint_radius = 600
+pod_radius = 400
+shieldCooldown = 4
 
-        // game loop
-        while (true) {
-            int x = in.nextInt();
-            int y = in.nextInt();
-            int nextCheckpointX = in.nextInt(); // x position of the next check point
-            int nextCheckpointY = in.nextInt(); // y position of the next check point
-            int nextCheckpointDist = in.nextInt(); // distance to the next checkpoint
-            int nextCheckpointAngle = in.nextInt(); // angle between your pod orientation and the direction of the next checkpoint
-            int opponentX = in.nextInt();
-            int opponentY = in.nextInt();
+prob_thrust = [1/4] + ([0.50/(maxThrust - 1)] * (maxThrust - 1)) +  [1/4]
+prob_rotation = [1/6] + ([0.25/(maxRotation - 1)] * (maxRotation - 1)) + [1/6] + ([0.25/(maxRotation - 1)] * (maxRotation - 1)) + [1/6]
+thrust_values = list(range(maxThrust + 1))
+rotation_values = list(range(-maxRotation, maxRotation + 1))
 
 
-            if(nextCheckpointAngle > 90 || nextCheckpointAngle < -90){
-                System.out.println(nextCheckpointX + " " + nextCheckpointY + " 0");
-            }
-            else {
-                if(nextCheckpointDist >100 && boost== false){
-                    System.out.println(nextCheckpointX + " " + nextCheckpointY + " BOOST");
-                }
-                else{
-                    System.out.println(nextCheckpointX + " " + nextCheckpointY + " 100");
-                }
-            }
+# Structure who keeps the race details
+class RaceManager:
+    laps = 0
+    checkPointCount = 0
+    checkPoints = []
 
-            // Write an action using System.out.println()
-            // To debug: System.err.println("Debug messages...");
-        }
-    }
-}
+# Structure who keeps the pod details
+class Pod:
+    
+    # Take the race details at the beginning
+    def __init__(self, race):
+        self.race = race
+
+    x = 0
+    y = 0
+    vx = 0
+    vy = 0
+    angle = 0
+    nextCheckPointId = 1
+    previousCheckPointId = 1
+    checkPointsPassed = 0
+    shieldCD = 0
+    boost_available = True
+    isRacer = False
+    C = 3 * (np.sqrt(16000**2 + 9000**2))
+    
+    # Check if a checkpoint is reached
+    def checkPointPassed(self):
+        if self.previousCheckPointId != self.nextCheckPointId:
+            self.checkPointsPassed += 1
+            self.previousCheckPointId = self.nextCheckPointId
+    
+    # Return the distance to the next checkpoint
+    def getNextCheckPointDist(self):
+        next_checkpoint_position = self.race.checkPoints[self.nextCheckPointId]
+        return np.sqrt((next_checkpoint_position[0] - self.x)**2 + (next_checkpoint_position[1] - self.y)**2)
+    
+    def getNextCheckPointAngle(self):
+        next_checkpoint_position = self.race.checkPoints[self.nextCheckPointId]
+        AC = next_checkpoint_position[0] - self.x
+        BC = next_checkpoint_position[1] - self.y
+        AB = np.sqrt((AC)**2 + (BC)**2)
+        if BC <= 0:
+            alpha = self.angle
+            beta = ((np.arccos(AC/AB) * 180.0) / PI) % 360.0
+            beta = 360 - beta
+            if alpha > beta:
+                delta = alpha - beta
+            else:
+                delta = beta - alpha
+        if BC > 0:
+            alpha = self.angle
+            beta = ((np.arccos(AC/AB) * 180.0) / PI) % 360.0
+            if alpha > beta:
+                delta = alpha - beta
+            else:
+                delta = beta - alpha   
+        return delta / 360.0
+
+    def getNextNextCheckPointAngle(self):
+        next_checkpoint_position = self.race.checkPoints[(self.nextCheckPointId + 1) % len(self.race.checkPoints)]
+        AC = next_checkpoint_position[0] - self.x
+        BC = next_checkpoint_position[1] - self.y
+        AB = np.sqrt((AC)**2 + (BC)**2)
+        if BC <= 0:
+            alpha = self.angle
+            beta = ((np.arccos(AC/AB) * 180.0) / PI) % 360.0
+            beta = 360 - beta
+            if alpha > beta:
+                delta = alpha - beta
+            else:
+                delta = beta - alpha
+        if BC > 0:
+            alpha = self.angle
+            beta = ((np.arccos(AC/AB) * 180.0) / PI) % 360.0
+            if alpha > beta:
+                delta = alpha - beta
+            else:
+                delta = beta - alpha   
+        return delta / 360.0
+    
+    # Calculate the score of the pod (the pod has to have the most checkpoint passed and be closer to the next checkpoint)
+    def get_score(self):
+        if self.getNextCheckPointDist() > 2*checkpoint_radius:
+            return (self.C * self.checkPointsPassed) - self.getNextCheckPointDist() - (500 * self.getNextCheckPointAngle())
+        else:
+            return (self.C * self.checkPointsPassed) - self.getNextCheckPointDist() - (500 * self.getNextNextCheckPointAngle())
+
+# Take the race details from the input
+race = RaceManager()
+race.laps = [int(i) for i in input().split()][0]
+race.checkPointCount = [int(i) for i in input().split()][0]
+for i in range(race.checkPointCount):
+    race.checkPoints.append([int(i) for i in input().split()])
+
+# Create all of our pods
+pod1 = Pod(race)
+pod2 = Pod(race)
+opponent1 = Pod(race)
+opponent2 = Pod(race)
+
+# Genome class for the genetic algorithm, has the details of the output to give each turn
+class Genome:
+    def __init__(self):
+        self.pod1Rotation = 0
+        self.pod1Thrust = 0
+        self.pod1Shield = False
+        self.pod1Boost = False
+        self.pod2Rotation = 0
+        self.pod2Thrust = 0
+        self.pod2Shield = False
+        self.pod2Boost = False
+
+# Gather multiple genome as a population
+class Population:
+    genome_list = []
+    
+# Generate a genome with random values but these values are optimized with probabilities
+def generate_genome(pod1, pod2):
+    genome = Genome()
+    genome.pod1Rotation = choices(rotation_values, weights=prob_rotation, k=1)[0]
+    genome.pod1Thrust = choices(thrust_values, weights=prob_thrust, k=1)[0]
+    genome.pod1Boost = False
+    genome.pod1Shield = False
+    #genome.pod1Shield = choice([True, False])
+    """
+    if pod1.boost_available == True:
+        genome.pod1Boost = choice([True, False])
+    else:
+        genome.pod1Boost = False
+    """
+    genome.pod2Rotation = choices(rotation_values, weights=prob_rotation, k=1)[0]
+    genome.pod2Thrust = choices(thrust_values, weights=prob_thrust, k=1)[0]
+    genome.pod2Shield = False
+    #genome.pod2Shield = choice([True, False])
+    genome.pod2Boost = False
+    """
+    if pod2.boost_available == True:
+        genome.pod2Boost = choice([True, False])
+    else:
+        genome.pod2Boost = False
+    """
+    
+    return genome
+
+# Generate multiple genome as a population
+def generate_population(pod1, pod2, size):
+    population = Population()
+    population.genome_list = [generate_genome(pod1, pod2) for _ in range(size)]
+    return population
+
+# Check which pod is ahead in each team and define the first one as the racer and the second one as the interceptor
+def getRacers(pod1, pod2, opponent1, opponent2):
+        if pod1.get_score() > pod2.get_score():
+            pod1.isRacer = True
+            pod2.isRacer = False
+        else:
+            pod1.isRacer = False
+            pod2.isRacer = True
+    
+        if opponent1.get_score() > opponent2.get_score():
+            opponent1.isRacer = True
+            opponent2.isRacer = False
+        else:
+            opponent1.isRacer = False
+            opponent2.isRacer = True
+
+# Use the rotation value in the genome to simulate the rotation
+def rotate(genome, pod1, pod2):
+    pod1.angle = (pod1.angle + genome.pod1Rotation) % 360
+     
+    pod2.angle = (pod2.angle + genome.pod2Rotation) % 360
+
+# Use the thrust value in the genome to simulate the acceleration
+def accelerate(genome, pod1, pod2):
+    #manageShield(genome.pod1Shield, pod1)
+    if pod1.shieldCD != 0:
+        angleRad_pod1 = (pod1.angle * PI) / 180.0
+        pod1.vx *= np.cos(angleRad_pod1)
+        pod1.vy *= np.sin(angleRad_pod1)
+    elif pod2.shieldCD != 0:
+        angleRad_pod2 = (pod2.angle * PI) / 180.0
+        pod2.vx *= np.cos(angleRad_pod2)
+        pod2.vy *= np.sin(angleRad_pod2)
+    elif pod1.shieldCD == 0:
+        angleRad_pod1 = (pod1.angle * PI) / 180.0
+        pod1.vx += genome.pod1Thrust * np.cos(angleRad_pod1)
+        pod1.vy += genome.pod1Thrust * np.sin(angleRad_pod1)
+    elif pod2.shieldCD == 0:
+        angleRad_pod2 = (pod2.angle * PI) / 180.0
+        pod2.vx += genome.pod2Thrust * np.cos(angleRad_pod2)
+        pod2.vy += genome.pod2Thrust * np.sin(angleRad_pod2)
+
+# Update the simulated position
+def move_position(pod1, pod2):
+    pod1.x += pod1.vx
+    pod1.y += pod1.vy
+
+    pod2.x += pod2.vx
+    pod2.y += pod2.vy
+
+# Add the friction factor to simulate on multiple turns
+def friction(pod1, pod2):
+    pod1.vx *= frictionFactor
+    pod1.vy *= frictionFactor
+
+    pod2.vx *= frictionFactor
+    pod2.vy *= frictionFactor
+
+def manageShield(turnOn, pod):
+    if turnOn:
+        pod.shieldCd = shieldCooldown
+    elif pod.shieldCD > 0:
+        pod.shieldCD -= 1
+
+def mass(pod):
+    if pod.shieldCD == shieldCooldown:
+        return 10
+    return 1
+
+def rebound(pod1, pod2):
+    mA = mass(pod1)
+    mB = mass(pod2)
+
+    dP = np.array([pod1.x, pod1.y]) - np.array([pod2.x, pod2.y])
+    AB = np.sqrt((pod2.x - pod1.x)**2 + (pod2.y - pod1.y)**2)
+
+    u = (1/AB) * dP
+
+    dS = np.array([pod1.vx, pod1.vy]) - np.array([pod2.vx, pod2.vy])
+    m = (mA * mB)/ (mA + mB)
+
+    km = np.dot(dS, u.T)
+    impulse = -2 * m * km
+    if impulse > minImpulse:
+        impulse = minImpulse
+    elif impulse < -minImpulse:
+        impulse = -minImpulse
+    
+    pod1.vx += (1/mA * impulse * u)[0]
+    pod1.vy += (1/mA * impulse * u)[1]
+    #speed_pod2 += 1/mB * impulse * u
+
+
+def actualize_opponent(opponent_genome, opponent1, opponent2):
+    rotate(opponent_genome, opponent1, opponent2)
+    accelerate(opponent_genome, opponent1, opponent2)
+    move_position(opponent1, opponent2)
+    friction(opponent1, opponent2)
+
+    return opponent1, opponent2
+
+# Our fitness function that evaluate the genome
+def fitness(genome, pod1, pod2, opponent1, opponent2):
+    pod1_tmp = copy.deepcopy(pod1)
+    pod2_tmp = copy.deepcopy(pod2)
+    
+    # The simulation
+    rotate(genome, pod1_tmp, pod2_tmp)
+    accelerate(genome, pod1_tmp, pod2_tmp)
+    move_position(pod1_tmp, pod2_tmp)
+
+    for i in [pod2, opponent1, opponent2]:
+        if np.sqrt((i.x - pod1_tmp.x)**2 + (i.y - pod1_tmp.y)**2) < 800:
+            genome.pod1Shield = True
+            rebound(i, pod1_tmp)
+    for i in [pod1, opponent1, opponent2]:
+        if np.sqrt((i.x - pod2_tmp.x)**2 + (i.y - pod2_tmp.y)**2) < 800:
+            genome.pod2Shield = True
+            rebound(i, pod2_tmp)
+
+    #friction(pod1_tmp, pod2_tmp)
+    
+    # Check which one is the racer and interceptor
+    """
+    if pod1_tmp.isRacer:
+        racer = pod1_tmp
+        interceptor = pod2_tmp
+    else:
+        racer = pod2_tmp
+        interceptor = pod1_tmp
+    """
+    racer = pod1_tmp
+    interceptor = pod2_tmp
+
+    if opponent1.isRacer:
+        opponent_racer = opponent1
+    else:
+        opponent_racer = opponent2
+    
+    # Calculate the racer score against the opponent after the simulation
+    aheadScore = racer.get_score() - opponent_racer.get_score()
+    
+    # Calculate the interceptor score against the opponent after the simulation
+    
+    nextOpponentCheckpoint = opponent_racer.race.checkPoints[opponent_racer.nextCheckPointId]
+    interceptorScore = -1 * np.sqrt((nextOpponentCheckpoint[0] - interceptor.x)**2 + (nextOpponentCheckpoint[1] - interceptor.y)**2)
+    
+    #interceptorScore = -1 * np.sqrt((interceptor.race.checkPoints[0][0] - interceptor.x)**2 + (interceptor.race.checkPoints[0][1] - interceptor.y)**2)
+
+    #print(k * aheadScore, file=sys.stderr, flush=True)
+    #print(interceptorScore, file=sys.stderr, flush=True)
+
+    # Mix the two scores with a factor
+    solutionRating = k * aheadScore + interceptorScore
+
+    return solutionRating
+
+# Select two differents pods with a probability that maximises the fitness function
+def selection_pair(population, pod1, pod2, opponent1, opponent2):
+    
+    list_fitness = [fitness(genome, pod1, pod2, opponent1, opponent2) for genome in population.genome_list]
+    if min(list_fitness) == max(list_fitness):
+        list_fitness = [1/len(list_fitness)] * len(list_fitness)
+    else:
+        list_fitness = (list_fitness-min(list_fitness))/(max(list_fitness)-min(list_fitness))
+    
+    return choices(population=population.genome_list, weights=[1]*len(population.genome_list), k=2)
+
+# Do the meiose, both genome creates two new genomes with their respective values mixed
+def single_point_crossover(a, b):
+    list_features_a = list(a.__dict__.values())
+    list_features_b = list(b.__dict__.values())
+    
+    if len(list_features_a) != len(list_features_b):
+        raise ValueError("Genomes a and b must be of the same length")
+    
+    length = len(list_features_a)
+    if length < 2:
+        return a, b
+    
+    p = randint(1, length - 1)
+    genome1 = Genome()
+    list_features_genome1 = list_features_a[0:p] + list_features_b[p:]
+    genome2 = Genome()
+    list_features_genome2 = list_features_b[0:p] + list_features_a[p:]
+    
+    genome1.pod1Rotation = list_features_genome1[0]
+    genome1.pod1Thrust = list_features_genome1[1]
+    genome1.pod1Shield = list_features_genome1[2]
+    genome1.pod1Boost = list_features_genome1[3]
+    genome1.pod2Rotation = list_features_genome1[4]
+    genome1.pod2Thrust = list_features_genome1[5]
+    genome1.pod2Shield = list_features_genome1[6]
+    genome1.pod2Boost = list_features_genome1[7]
+    
+    genome2.pod1Rotation = list_features_genome2[0]
+    genome2.pod1Thrust = list_features_genome2[1]
+    genome2.pod1Shield = list_features_genome2[2]
+    genome2.pod1Boost = list_features_genome2[3]
+    genome2.pod2Rotation = list_features_genome2[4]
+    genome2.pod2Thrust = list_features_genome2[5]
+    genome2.pod2Shield = list_features_genome2[6]
+    genome2.pod2Boost = list_features_genome2[7]
+    
+    return genome1, genome2
+
+# Change the values of a random gene
+def mutation(genome, num = 1, probability = 0.5):
+    list_features = list(genome.__dict__.values())
+    for _ in range(num):
+        index = randrange(len(list_features))
+        if random() > probability:
+            pass
+        else:
+            if index == 0:
+                genome.pod1Rotation = choices(rotation_values, weights=prob_rotation, k=1)[0]
+            elif index == 1:
+                genome.pod1Thrust = choices(thrust_values, weights=prob_thrust, k=1)[0]
+            elif index == 4:
+                genome.pod2Rotation = choices(rotation_values, weights=prob_rotation, k=1)[0]
+            elif index == 5:
+                genome.pod2Thrust = choices(thrust_values, weights=prob_thrust, k=1)[0]
+            """
+            elif index == 2:
+                genome.pod1Shield = not genome.pod1Shield
+            elif index == 3:
+                genome.pod1Boost = not genome.pod1Boost
+            """
+            
+            """
+            elif index == 6:
+                genome.pod2Shield = not genome.pod2Shield
+            elif index == 7:
+                genome.pod2Boost = not genome.pod2Boost
+            """
+                
+    return genome
+
+# Run the genetic algorithm that has to be run each turn
+def run_evolution(pod1, pod2, opponent1, opponent2, time_limit):
+    
+    # Check the remaining time
+    start_time = time.time()
+    current_time = time.time()
+    # Generate the population at the beginning
+    population = generate_population(pod1, pod2, 6) # Get the first population
+    # Actualize which one is the racer and the interceptor
+    getRacers(pod1, pod2, opponent1, opponent2)
+    i = 0
+    
+    # Run multiple generations based on the remaining time
+    while (current_time - start_time) < time_limit:
+        
+        # Sort our population by the fitness function to have the best genome at the beginning of the list
+        population.genome_list = sorted(
+            population.genome_list,
+            key=lambda genome: fitness(genome, pod1, pod2, opponent1, opponent2),
+            reverse=True
+        ) # Sort the population given the fitness function results
+        
+        # Create the next generation
+        next_generation = Population()
+        # Keep the two best solutions so far
+        next_generation.genome_list = population.genome_list[0:2] 
+        
+        # Create new genomes based on the previous ones with the meiose method and mutation
+        for j in range(int(len(population.genome_list) / 2) - 1):
+            parents = selection_pair(population, pod1, pod2, opponent1, opponent2)
+            offspring_a, offspring_b = single_point_crossover(parents[0], parents[1])
+            offspring_a = mutation(offspring_a)
+            offspring_b = mutation(offspring_b)
+            next_generation.genome_list += [offspring_a, offspring_b]
+        
+        # Actualize the population
+        population = next_generation
+        
+        current_time = time.time()
+        i += 1
+    
+    # Final sort of the population
+    population.genome_list = sorted(
+        population.genome_list,
+        key=lambda genome: fitness(genome, pod1, pod2, opponent1, opponent2),
+        reverse=True
+        )
+    
+    print("num generation = " + str(i), file=sys.stderr, flush=True)
+    
+    # Return the best genome at the end of the time limit
+    return population.genome_list[0]
+
+# Take a genome and produce the output
+def give_solution(pod1, pod2, solution):
+    targetDistance = 250.0
+    angle_pod1 = (pod1.angle + solution.pod1Rotation) % 360
+    angleRad_pod1 = (angle_pod1 * PI) / 180.0
+    target_x_pod1 = pod1.x + (targetDistance * np.cos(angleRad_pod1))
+    target_y_pod1 = pod1.y + (targetDistance * np.sin(angleRad_pod1))
+    angle_pod2 = (pod2.angle + solution.pod2Rotation) % 360
+    angleRad_pod2 = (angle_pod2 * PI) / 180.0
+    target_x_pod2 = pod2.x + (targetDistance * np.cos(angleRad_pod2))
+    target_y_pod2 = pod2.y + (targetDistance * np.sin(angleRad_pod2))
+    """
+    # For now only the rotation and thrust are predicted, not the SHIELD and BOOST
+    print(str(int(target_x_pod1)) + " " + str(int(target_y_pod1)) + " " + str(int(solution.pod1Thrust)))
+    print(str(int(target_x_pod2)) + " " + str(int(target_y_pod2)) + " " + str(int(solution.pod2Thrust)))
+    """
+    
+    if (not solution.pod1Shield):
+        manageShield(solution.pod1Shield, pod1)
+        print(str(round(target_x_pod1)) + " " + str(round(target_y_pod1)) + " " + str(solution.pod1Thrust))
+    elif solution.pod1Shield:
+        manageShield(solution.pod1Shield, pod1)
+        print(str(round(target_x_pod1)) + " " + str(round(target_y_pod1)) + " " + "SHIELD")
+    """
+    elif solution.pod1Boost:
+        print(str(target_x_pod1) + " " + str(target_y_pod1) + " " + "BOOST")
+    """
+    
+    if (not solution.pod2Shield):
+        manageShield(solution.pod2Shield, pod2)
+        print(str(round(target_x_pod2)) + " " + str(round(target_y_pod2)) + " " + str(solution.pod2Thrust))
+    elif solution.pod2Shield:
+        manageShield(solution.pod2Shield, pod2)
+        print(str(round(target_x_pod2)) + " " + str(round(target_y_pod2)) + " " + "SHIELD")
+    """
+    elif solution.pod2Boost:
+        print(str(target_x_pod2) + " " + str(target_y_pod2) + " " + "BOOST")
+    """
+
+# Output of the first turn
+def first_turn(pod1, pod2):
+    print(str(pod1.race.checkPoints[1][0]) + " " + str(pod1.race.checkPoints[1][1]) + " " + "BOOST")
+    print(str(pod2.race.checkPoints[1][0]) + " " + str(pod2.race.checkPoints[1][1]) + " " + "BOOST")
+    
+
+# game loop
+while True:
+    # next_checkpoint_x: x position of the next check point
+    # next_checkpoint_y: y position of the next check point
+    # next_checkpoint_dist: distance to the next checkpoint
+    # next_checkpoint_angle: angle between your pod orientation and the direction of the next checkpoint
+    # Take the pods details from the input
+    pod1.x, pod1.y, pod1.vx, pod1.vy, pod1.angle, pod1.nextCheckPointId = [int(i) for i in input().split()]
+    pod2.x, pod2.y, pod2.vx, pod2.vy, pod2.angle, pod2.nextCheckPointId = [int(i) for i in input().split()]
+    opponent1.x, opponent1.y, opponent1.vx, opponent1.vy, opponent1.angle, opponent1.nextCheckPointId = [int(i) for i in input().split()]
+    opponent2.x, opponent2.y, opponent2.vx, opponent2.vy, opponent2.angle, opponent2.nextCheckPointId = [int(i) for i in input().split()]
+    # Check if a pod has reached a checkpoint
+    pod1.checkPointPassed()
+    pod2.checkPointPassed()
+    opponent1.checkPointPassed()
+    opponent2.checkPointPassed()
+    # Write an action using print
+    # To debug: print("Debug messages...", file=sys.stderr, flush=True)
+
+    # You have to output the target position
+    # followed by the power (0 <= thrust <= 100) or "BOOST"
+    # i.e.: "x y thrust"
+
+    # Run the genetic algorithm each turn
+    if turn == 0:
+        first_turn(pod1, pod2)
+    else :
+        opponent_best_solution = run_evolution(opponent1, opponent2, pod1, pod2, time_limit=0.020)
+        opponent1, opponent2 = actualize_opponent(opponent_best_solution, opponent1, opponent2)
+        solution = run_evolution(pod1, pod2, opponent1, opponent2, time_limit=0.050)
+        give_solution(pod1, pod2, solution)
+    turn += 1
